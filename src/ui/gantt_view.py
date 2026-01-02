@@ -1154,7 +1154,7 @@ class GanttChart(QTableWidget):
                         item.setBackground(QColor(248, 248, 248))
                         
     def on_task_drag_moved(self, task_data, days_moved):
-        """处理任务拖动事件"""
+        """处理任务拖动事件 - 优化版，减少不必要的刷新"""
         if days_moved == 0:
             return
             
@@ -1171,23 +1171,27 @@ class GanttChart(QTableWidget):
         updated_task["start_time"] = new_start
         updated_task["end_time"] = new_end
         
-        # 更新任务
+        # 更新任务 - 不立即刷新整个视图
         if self.scheduler_manager.update_task(updated_task):
-            # 更新成功，刷新视图
-            self.window().findChild(GanttView).refresh()
+            # 更新成功，仅更新本地任务数据而不刷新整个视图
+            task_data.update(updated_task)
             
-            # 显示成功消息
-            InfoBar.success(
-                title="已更新",
-                content=f"任务日期已更新",
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=2000,
-                parent=self
-            )
+            # 使用定时器延迟显示成功消息，避免频繁弹出
+            if not hasattr(self, '_update_timer'):
+                self._update_timer = QTimer()
+                self._update_timer.setSingleShot(True)
+                self._update_timer.timeout.connect(lambda: InfoBar.success(
+                    title="已更新",
+                    content=f"任务日期已更新",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=1500,
+                    parent=self
+                ))
+            self._update_timer.start(500)  # 500ms后显示消息
         else:
-            # 更新失败，显示错误消息
+            # 更新失败，立即显示错误消息
             InfoBar.error(
                 title="更新失败",
                 content="无法更新任务日期，请稍后重试",
@@ -1199,7 +1203,7 @@ class GanttChart(QTableWidget):
             )
             
     def on_task_resized(self, task_data, days_changed, is_start_date):
-        """处理任务调整大小事件"""
+        """处理任务调整大小事件 - 优化版，减少不必要的刷新"""
         if days_changed == 0:
             return
             
@@ -1219,23 +1223,27 @@ class GanttChart(QTableWidget):
             new_end = end_time + timedelta(days=days_changed)
             updated_task["end_time"] = new_end
             
-        # 更新任务
+        # 更新任务 - 不立即刷新整个视图
         if self.scheduler_manager.update_task(updated_task):
-            # 更新成功，刷新视图
-            self.window().findChild(GanttView).refresh()
+            # 更新成功，仅更新本地任务数据而不刷新整个视图
+            task_data.update(updated_task)
             
-            # 显示成功消息
-            InfoBar.success(
-                title="已更新",
-                content=f"任务日期已更新",
-                orient=Qt.Horizontal,
-                isClosable=True,
-                position=InfoBarPosition.TOP,
-                duration=2000,
-                parent=self
-            )
+            # 使用定时器延迟显示成功消息，避免频繁弹出
+            if not hasattr(self, '_resize_timer'):
+                self._resize_timer = QTimer()
+                self._resize_timer.setSingleShot(True)
+                self._resize_timer.timeout.connect(lambda: InfoBar.success(
+                    title="已更新",
+                    content=f"任务日期已更新",
+                    orient=Qt.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=1500,
+                    parent=self
+                ))
+            self._resize_timer.start(500)  # 500ms后显示消息
         else:
-            # 更新失败，显示错误消息
+            # 更新失败，立即显示错误消息
             InfoBar.error(
                 title="更新失败",
                 content="无法更新任务日期，请稍后重试",
