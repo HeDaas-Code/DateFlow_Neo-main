@@ -262,13 +262,22 @@ class GanttTaskBar(QWidget):
     def snap_to_grid(self, value, grid_size, threshold=None):
         """将值吸附到网格
         
+        当值接近网格线时，将其吸附到最近的网格位置。这用于在拖动任务条时
+        提供网格对齐功能，使任务条能够精确对齐到天数网格。
+        
         Args:
-            value: 需要吸附的值
-            grid_size: 网格大小
-            threshold: 吸附阈值，默认为grid_size的1/3
+            value (float): 需要吸附的像素值
+            grid_size (float): 网格大小（像素）
+            threshold (float, optional): 吸附阈值，当值与网格线的距离小于此值时才吸附。
+                                        默认为grid_size的1/3
             
         Returns:
-            吸附后的值
+            float: 吸附后的值。如果在阈值范围内则返回对齐后的网格位置，
+                  否则返回原值
+                  
+        Example:
+            >>> snap_to_grid(32, 30)  # 返回 30，吸附到最近的网格线
+            >>> snap_to_grid(45, 30)  # 返回 45，不在吸附范围内
         """
         if threshold is None:
             threshold = grid_size / 3
@@ -1177,19 +1186,7 @@ class GanttChart(QTableWidget):
             task_data.update(updated_task)
             
             # 使用定时器延迟显示成功消息，避免频繁弹出
-            if not hasattr(self, '_update_timer'):
-                self._update_timer = QTimer()
-                self._update_timer.setSingleShot(True)
-                self._update_timer.timeout.connect(lambda: InfoBar.success(
-                    title="已更新",
-                    content=f"任务日期已更新",
-                    orient=Qt.Horizontal,
-                    isClosable=True,
-                    position=InfoBarPosition.TOP,
-                    duration=1500,
-                    parent=self
-                ))
-            self._update_timer.start(500)  # 500ms后显示消息
+            self._show_update_success_message_debounced()
         else:
             # 更新失败，立即显示错误消息
             InfoBar.error(
@@ -1229,19 +1226,7 @@ class GanttChart(QTableWidget):
             task_data.update(updated_task)
             
             # 使用定时器延迟显示成功消息，避免频繁弹出
-            if not hasattr(self, '_resize_timer'):
-                self._resize_timer = QTimer()
-                self._resize_timer.setSingleShot(True)
-                self._resize_timer.timeout.connect(lambda: InfoBar.success(
-                    title="已更新",
-                    content=f"任务日期已更新",
-                    orient=Qt.Horizontal,
-                    isClosable=True,
-                    position=InfoBarPosition.TOP,
-                    duration=1500,
-                    parent=self
-                ))
-            self._resize_timer.start(500)  # 500ms后显示消息
+            self._show_update_success_message_debounced()
         else:
             # 更新失败，立即显示错误消息
             InfoBar.error(
@@ -1253,6 +1238,26 @@ class GanttChart(QTableWidget):
                 duration=2000,
                 parent=self
             )
+    
+    def _show_update_success_message_debounced(self):
+        """显示任务更新成功消息（防抖）
+        
+        使用定时器延迟显示成功消息，避免频繁操作时消息过多。
+        多次调用会重置定时器，只在最后一次调用后的500ms显示消息。
+        """
+        if not hasattr(self, '_update_message_timer'):
+            self._update_message_timer = QTimer()
+            self._update_message_timer.setSingleShot(True)
+            self._update_message_timer.timeout.connect(lambda: InfoBar.success(
+                title="已更新",
+                content="任务日期已更新",
+                orient=Qt.Horizontal,
+                isClosable=True,
+                position=InfoBarPosition.TOP,
+                duration=1500,
+                parent=self
+            ))
+        self._update_message_timer.start(500)  # 500ms后显示消息
             
     def edit_task(self, task_data):
         """打开任务编辑对话框"""

@@ -422,9 +422,13 @@ class PluginManager:
         self.set_plugin_state(plugin_id, self.STATE_STOPPING)
         
         try:
-            # 调用插件清理方法
-            if not plugin.cleanup():
-                logger.warning("插件清理返回False", plugin_id=plugin_id)
+            # 调用插件清理方法，捕获可能的异常以确保卸载过程继续
+            try:
+                if not plugin.cleanup():
+                    logger.warning("插件清理返回False", plugin_id=plugin_id)
+            except Exception as cleanup_error:
+                logger.error("插件清理时发生异常", plugin_id=plugin_id, error=str(cleanup_error))
+                # 继续卸载过程，即使清理失败
             
             # 触发插件卸载事件
             self.dispatch_event(self.EVENT_PLUGIN_UNLOADED, plugin)
