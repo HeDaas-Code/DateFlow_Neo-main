@@ -9,12 +9,16 @@
 from datetime import datetime, timedelta
 import math
 
-from PyQt5.QtCore import Qt, QRectF, QDate, QDateTime, QSize, QPoint, pyqtSignal, QTimer, QEvent, QMimeData
+from PyQt5.QtCore import (
+    Qt, QRectF, QDate, QDateTime, QSize, QPoint, pyqtSignal, QTimer, 
+    QEvent, QMimeData, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup,
+    QSequentialAnimationGroup, pyqtProperty
+)
 from PyQt5.QtGui import QPainter, QColor, QPen, QFont, QBrush, QPainterPath, QDrag
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, 
     QSplitter, QGridLayout, QMenu, QHeaderView, QTableWidget, 
-    QTableWidgetItem, QAbstractItemView, QFrame, QSizePolicy
+    QTableWidgetItem, QAbstractItemView, QFrame, QSizePolicy, QGraphicsOpacityEffect
 )
 
 from qfluentwidgets import (
@@ -158,7 +162,7 @@ class GanttHeaderWidget(QWidget):
                 painter.drawLine(int(today_x), 0, int(today_x), self.height())
 
 class GanttTaskBar(QWidget):
-    """甘特图中的任务条"""
+    """甘特图中的任务条 - 增强版，支持动画效果"""
     
     clicked = pyqtSignal(dict)  # 点击任务时发出信号
     dragMoved = pyqtSignal(dict, int)  # 拖动任务时发出信号，包含任务数据和水平偏移量
@@ -179,7 +183,32 @@ class GanttTaskBar(QWidget):
         self.last_position = 0  # 最后位置，用于计算变化量
         self.last_width = 0  # 最后宽度，用于计算变化量
         self.resize_margin = 5  # 调整大小的边缘宽度
+        
+        # 动画相关属性
+        self._opacity = 1.0  # 透明度属性
+        self.opacity_effect = None  # 透明度效果
+        self.position_animation = None  # 位置动画
+        self.size_animation = None  # 大小动画
+        
         self.init_ui()
+    
+    # 添加透明度属性以支持动画
+    @pyqtProperty(float)
+    def opacity(self):
+        return self._opacity
+    
+    @opacity.setter
+    def opacity(self, value):
+        self._opacity = value
+        if self.opacity_effect:
+            self.opacity_effect.setOpacity(value)
+    
+    def setup_animations(self):
+        """初始化动画效果"""
+        # 设置透明度效果
+        self.opacity_effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self.opacity_effect)
+        self.opacity_effect.setOpacity(1.0)
         
     def init_ui(self):
         """初始化界面"""
@@ -214,6 +243,52 @@ class GanttTaskBar(QWidget):
         
         # 设置工具提示
         self.update_tooltip()
+        
+        # 初始化动画效果
+        self.setup_animations()
+    
+    def snap_to_grid(self, value, grid_size, threshold=None):
+        """将值吸附到网格
+        
+        Args:
+            value: 需要吸附的值
+            grid_size: 网格大小
+            threshold: 吸附阈值，默认为grid_size的1/3
+            
+        Returns:
+            吸附后的值
+        """
+        if threshold is None:
+            threshold = grid_size / 3
+            
+        grid_position = round(value / grid_size) * grid_size
+        
+        # 如果靠近网格线，吸附到网格
+        if abs(value - grid_position) < threshold:
+            return grid_position
+        return value
+    
+    def calculate_days_from_position(self, position):
+        """根据位置计算天数偏移
+        
+        Args:
+            position: 像素位置
+            
+        Returns:
+            天数偏移
+        """
+        return round(position / self.day_width)
+    
+    def update_cursor_for_position(self, x):
+        """根据鼠标位置更新光标
+        
+        Args:
+            x: 鼠标相对于控件的X坐标
+        """
+        if x < self.resize_margin or x > self.width() - self.resize_margin:
+            self.setCursor(Qt.SizeHorCursor)
+        else:
+            self.setCursor(Qt.PointingHandCursor)
         
     def update_tooltip(self):
         """更新工具提示"""
@@ -350,19 +425,13 @@ class GanttTaskBar(QWidget):
                 new_width = min_width
                 new_x = self.original_x + self.original_width - min_width
             
-            # 吸附到天网格 - 修复计算错误
-            grid_size = self.day_width
-            days_offset = round(new_x / grid_size)
-            grid_position = days_offset * grid_size
-            
-            # 如果靠近网格线，吸附到网格
-            if abs(new_x - grid_position) < grid_size / 3:
-                new_x = grid_position
-                new_width = self.original_x + self.original_width - new_x
+            # 吸附到天网格
+            new_x = self.snap_to_grid(new_x, self.day_width)
+            new_width = self.original_x + self.original_width - new_x
             
             # 更新位置和大小
             self.setGeometry(int(new_x), self.y(), int(new_width), self.height())
-            self.last_position = new_x  # 保存最后位置用于释放时计算
+            self.last_position = new_x
                 
         elif self.resize_right:
             # 右侧调整大小
@@ -374,18 +443,12 @@ class GanttTaskBar(QWidget):
             if new_width < min_width:
                 new_width = min_width
             
-            # 吸附到天网格 - 修复计算错误
-            grid_size = self.day_width
-            days_width = round(new_width / grid_size)
-            grid_width = days_width * grid_size
-            
-            # 如果靠近网格线，吸附到网格
-            if abs(new_width - grid_width) < grid_size / 3:
-                new_width = grid_width
+            # 吸附到天网格
+            new_width = self.snap_to_grid(new_width, self.day_width)
             
             # 更新大小
             self.setGeometry(self.x(), self.y(), int(new_width), self.height())
-            self.last_width = new_width  # 保存最后宽度用于释放时计算
+            self.last_width = new_width
                 
         elif self.dragging:
             # 整体拖动
@@ -396,28 +459,16 @@ class GanttTaskBar(QWidget):
             if new_x < 0:
                 new_x = 0
                 
-            # 吸附到天网格 - 修复计算错误
-            grid_size = self.day_width
-            days_offset = round(new_x / grid_size)
-            grid_position = days_offset * grid_size
-            
-            # 如果靠近网格线，吸附到网格
-            if abs(new_x - grid_position) < grid_size / 3:
-                new_x = grid_position
+            # 吸附到天网格
+            new_x = self.snap_to_grid(new_x, self.day_width)
                 
             # 更新位置
             self.move(int(new_x), self.y())
-            self.last_position = new_x  # 保存最后位置用于释放时计算
+            self.last_position = new_x
                 
         elif event.buttons() == Qt.NoButton:
             # 鼠标悬停时更新光标
-            x = event.x()
-            if x < self.resize_margin:
-                self.setCursor(Qt.SizeHorCursor)
-            elif x > self.width() - self.resize_margin:
-                self.setCursor(Qt.SizeHorCursor)
-            else:
-                self.setCursor(Qt.PointingHandCursor)
+            self.update_cursor_for_position(event.x())
             
             # 高亮显示
             self.hover = True
@@ -458,10 +509,9 @@ class GanttTaskBar(QWidget):
             
             # 计算变化量并发送信号 - 只在松开鼠标时发送一次
             if was_dragging:
-                # 修复天数计算 - 根据准确的网格位置计算
-                grid_size = self.day_width
-                original_days = round(self.original_x / grid_size)
-                new_days = round(self.last_position / grid_size)
+                # 根据准确的网格位置计算天数变化
+                original_days = self.calculate_days_from_position(self.original_x)
+                new_days = self.calculate_days_from_position(self.last_position)
                 days_moved = new_days - original_days
                 
                 # 只有当实际移动了才发出信号
@@ -470,10 +520,9 @@ class GanttTaskBar(QWidget):
                     self.dragMoved.emit(self.task_data, days_moved)
             
             elif was_resizing_left:
-                # 修复天数计算 - 根据准确的网格位置计算
-                grid_size = self.day_width
-                original_days = round(self.original_x / grid_size)
-                new_days = round(self.last_position / grid_size)
+                # 根据准确的网格位置计算天数变化
+                original_days = self.calculate_days_from_position(self.original_x)
+                new_days = self.calculate_days_from_position(self.last_position)
                 days_changed = original_days - new_days
                 
                 # 只有当实际调整了大小才发出信号
@@ -482,10 +531,9 @@ class GanttTaskBar(QWidget):
                     self.resized.emit(self.task_data, days_changed, True)
                     
             elif was_resizing_right:
-                # 修复天数计算 - 根据准确的网格位置计算
-                grid_size = self.day_width
-                original_width_days = round(self.original_width / grid_size)
-                new_width_days = round(self.last_width / grid_size)
+                # 根据准确的网格位置计算天数变化
+                original_width_days = self.calculate_days_from_position(self.original_width)
+                new_width_days = self.calculate_days_from_position(self.last_width)
                 days_changed = new_width_days - original_width_days
                 
                 # 只有当实际调整了大小才发出信号
@@ -499,11 +547,7 @@ class GanttTaskBar(QWidget):
             self.resize_right = False
             
             # 根据鼠标位置设置光标
-            x = event.x()
-            if x < self.resize_margin or x > self.width() - self.resize_margin:
-                self.setCursor(Qt.SizeHorCursor)
-            else:
-                self.setCursor(Qt.PointingHandCursor)
+            self.update_cursor_for_position(event.x())
             
             self.update()
             

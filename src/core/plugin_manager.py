@@ -142,7 +142,7 @@ class PluginBase:
 
 
 class PluginManager:
-    """事件驱动的插件管理器，负责加载和管理插件"""
+    """事件驱动的插件管理器，负责加载和管理插件 - 增强版"""
     
     # 定义系统事件类型常量
     EVENT_APPLICATION_START = "application.start"         # 应用程序启动
@@ -157,6 +157,16 @@ class PluginManager:
     EVENT_PLUGIN_LOADED = "plugin.loaded"                # 插件加载
     EVENT_PLUGIN_UNLOADED = "plugin.unloaded"            # 插件卸载
     
+    # 插件状态常量
+    STATE_UNLOADED = "unloaded"      # 未加载
+    STATE_LOADING = "loading"        # 加载中
+    STATE_LOADED = "loaded"          # 已加载
+    STATE_INITIALIZING = "initializing"  # 初始化中
+    STATE_RUNNING = "running"        # 运行中
+    STATE_PAUSED = "paused"          # 暂停
+    STATE_STOPPING = "stopping"      # 停止中
+    STATE_ERROR = "error"            # 错误状态
+    
     def __init__(self, config_manager=None):
         """
         初始化插件管理器
@@ -167,6 +177,8 @@ class PluginManager:
         self.config_manager = config_manager
         self.plugins = {}  # 已加载的插件实例，key为插件ID
         self.plugin_modules = {}  # 已加载的插件模块，key为插件ID
+        self.plugin_states = {}  # 插件状态，key为插件ID，value为状态字符串
+        self.plugin_errors = {}  # 插件错误信息，key为插件ID
         
         # 计算相对于当前文件的基础目录
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -196,6 +208,45 @@ class PluginManager:
         # 确保插件目录存在
         os.makedirs(self.plugin_dir, exist_ok=True)
         logger.info(f"插件目录：{self.plugin_dir}")
+    
+    def set_plugin_state(self, plugin_id: str, state: str, error: str = None):
+        """设置插件状态
+        
+        参数:
+            plugin_id: 插件ID
+            state: 插件状态
+            error: 错误信息（可选）
+        """
+        self.plugin_states[plugin_id] = state
+        if error:
+            self.plugin_errors[plugin_id] = error
+        elif plugin_id in self.plugin_errors:
+            # 清除旧的错误信息
+            del self.plugin_errors[plugin_id]
+        
+        logger.info(f"插件状态更新", plugin_id=plugin_id, state=state, error=error)
+    
+    def get_plugin_state(self, plugin_id: str) -> str:
+        """获取插件状态
+        
+        参数:
+            plugin_id: 插件ID
+            
+        返回:
+            插件状态字符串
+        """
+        return self.plugin_states.get(plugin_id, self.STATE_UNLOADED)
+    
+    def get_plugin_error(self, plugin_id: str) -> Optional[str]:
+        """获取插件错误信息
+        
+        参数:
+            plugin_id: 插件ID
+            
+        返回:
+            错误信息，如果没有错误则返回None
+        """
+        return self.plugin_errors.get(plugin_id)
         
     def discover_plugins(self) -> List[Dict[str, Any]]:
         """
@@ -249,7 +300,7 @@ class PluginManager:
         
     def load_plugin(self, plugin_id: str, app_context: Any = None) -> bool:
         """
-        加载插件
+        加载插件 - 增强版，包含详细的状态管理
         
         参数:
             plugin_id: 插件ID
@@ -263,19 +314,26 @@ class PluginManager:
             logger.info("插件已加载", plugin_id=plugin_id)
             return True
         
+        # 设置加载中状态
+        self.set_plugin_state(plugin_id, self.STATE_LOADING)
+        
         try:
             # 插件目录路径
             plugin_dir = os.path.join(self.plugin_dir, plugin_id)
             
             # 检查插件目录是否存在
             if not os.path.exists(plugin_dir):
-                logger.error("插件目录不存在", plugin_dir=plugin_dir)
+                error_msg = f"插件目录不存在: {plugin_dir}"
+                logger.error(error_msg)
+                self.set_plugin_state(plugin_id, self.STATE_ERROR, error_msg)
                 return False
             
             # 检查插件入口文件是否存在
             plugin_init = os.path.join(plugin_dir, "__init__.py")
             if not os.path.exists(plugin_init):
-                logger.error("插件入口文件不存在", plugin_id=plugin_id)
+                error_msg = "插件入口文件不存在"
+                logger.error(error_msg, plugin_id=plugin_id)
+                self.set_plugin_state(plugin_id, self.STATE_ERROR, error_msg)
                 return False
             
             # 导入插件模块
@@ -283,12 +341,17 @@ class PluginManager:
             module_spec = importlib.util.find_spec(module_name)
             
             if not module_spec:
-                logger.error("无法加载插件规范", plugin_id=plugin_id)
+                error_msg = "无法加载插件规范"
+                logger.error(error_msg, plugin_id=plugin_id)
+                self.set_plugin_state(plugin_id, self.STATE_ERROR, error_msg)
                 return False
             
             # 导入模块
             module = importlib.import_module(module_name)
             self.plugin_modules[plugin_id] = module
+            
+            # 设置已加载状态
+            self.set_plugin_state(plugin_id, self.STATE_LOADED)
             
             # 查找插件类
             plugin_class = None
@@ -301,19 +364,29 @@ class PluginManager:
                     break
             
             if not plugin_class:
-                logger.error("未找到插件类", plugin_id=plugin_id)
+                error_msg = "未找到插件类"
+                logger.error(error_msg, plugin_id=plugin_id)
+                self.set_plugin_state(plugin_id, self.STATE_ERROR, error_msg)
                 return False
             
             # 实例化插件
             plugin = plugin_class()
             
+            # 设置初始化中状态
+            self.set_plugin_state(plugin_id, self.STATE_INITIALIZING)
+            
             # 初始化插件
             if app_context and not plugin.initialize(app_context):
-                logger.error("插件初始化失败", plugin_id=plugin_id)
+                error_msg = "插件初始化失败"
+                logger.error(error_msg, plugin_id=plugin_id)
+                self.set_plugin_state(plugin_id, self.STATE_ERROR, error_msg)
                 return False
             
             # 将插件添加到管理器
             self.plugins[plugin_id] = plugin
+            
+            # 设置运行中状态
+            self.set_plugin_state(plugin_id, self.STATE_RUNNING)
             
             # 触发插件加载事件
             self.dispatch_event(self.EVENT_PLUGIN_LOADED, plugin)
@@ -322,13 +395,15 @@ class PluginManager:
             return True
             
         except Exception as e:
-            logger.error("加载插件出错", plugin_id=plugin_id, error=str(e))
+            error_msg = f"加载插件出错: {str(e)}"
+            logger.error(error_msg, plugin_id=plugin_id)
             logger.error(traceback.format_exc())
+            self.set_plugin_state(plugin_id, self.STATE_ERROR, error_msg)
             return False
             
     def unload_plugin(self, plugin_id: str) -> bool:
         """
-        卸载插件
+        卸载插件 - 增强版，包含详细的状态管理
         
         参数:
             plugin_id: 插件ID
@@ -340,11 +415,16 @@ class PluginManager:
         plugin = self.plugins.get(plugin_id)
         if not plugin:
             logger.warning("插件未加载，无需卸载", plugin_id=plugin_id)
+            self.set_plugin_state(plugin_id, self.STATE_UNLOADED)
             return True
+        
+        # 设置停止中状态
+        self.set_plugin_state(plugin_id, self.STATE_STOPPING)
         
         try:
             # 调用插件清理方法
-            plugin.cleanup()
+            if not plugin.cleanup():
+                logger.warning("插件清理返回False", plugin_id=plugin_id)
             
             # 触发插件卸载事件
             self.dispatch_event(self.EVENT_PLUGIN_UNLOADED, plugin)
@@ -358,12 +438,17 @@ class PluginManager:
             if plugin_id in self.plugin_modules:
                 del self.plugin_modules[plugin_id]
             
+            # 设置未加载状态
+            self.set_plugin_state(plugin_id, self.STATE_UNLOADED)
+            
             logger.info("成功卸载插件", plugin_id=plugin_id)
             return True
             
         except Exception as e:
-            logger.error("卸载插件出错", plugin_id=plugin_id, error=str(e))
+            error_msg = f"卸载插件出错: {str(e)}"
+            logger.error(error_msg, plugin_id=plugin_id)
             logger.error(traceback.format_exc())
+            self.set_plugin_state(plugin_id, self.STATE_ERROR, error_msg)
             return False
             
     def reload_plugin(self, plugin_id: str, app_context: Any = None) -> bool:
@@ -380,6 +465,70 @@ class PluginManager:
         if self.unload_plugin(plugin_id):
             return self.load_plugin(plugin_id, app_context)
         return False
+    
+    def pause_plugin(self, plugin_id: str) -> bool:
+        """
+        暂停插件运行
+        
+        参数:
+            plugin_id: 插件ID
+            
+        返回:
+            bool: 暂停成功返回True，失败返回False
+        """
+        plugin = self.plugins.get(plugin_id)
+        if not plugin:
+            logger.warning("插件未加载，无法暂停", plugin_id=plugin_id)
+            return False
+        
+        current_state = self.get_plugin_state(plugin_id)
+        if current_state != self.STATE_RUNNING:
+            logger.warning("插件不在运行状态，无法暂停", plugin_id=plugin_id, state=current_state)
+            return False
+        
+        try:
+            # 禁用插件
+            plugin.enabled = False
+            self.set_plugin_state(plugin_id, self.STATE_PAUSED)
+            logger.info("插件已暂停", plugin_id=plugin_id)
+            return True
+        except Exception as e:
+            error_msg = f"暂停插件出错: {str(e)}"
+            logger.error(error_msg, plugin_id=plugin_id)
+            self.set_plugin_state(plugin_id, self.STATE_ERROR, error_msg)
+            return False
+    
+    def resume_plugin(self, plugin_id: str) -> bool:
+        """
+        恢复插件运行
+        
+        参数:
+            plugin_id: 插件ID
+            
+        返回:
+            bool: 恢复成功返回True，失败返回False
+        """
+        plugin = self.plugins.get(plugin_id)
+        if not plugin:
+            logger.warning("插件未加载，无法恢复", plugin_id=plugin_id)
+            return False
+        
+        current_state = self.get_plugin_state(plugin_id)
+        if current_state != self.STATE_PAUSED:
+            logger.warning("插件不在暂停状态，无法恢复", plugin_id=plugin_id, state=current_state)
+            return False
+        
+        try:
+            # 启用插件
+            plugin.enabled = True
+            self.set_plugin_state(plugin_id, self.STATE_RUNNING)
+            logger.info("插件已恢复", plugin_id=plugin_id)
+            return True
+        except Exception as e:
+            error_msg = f"恢复插件出错: {str(e)}"
+            logger.error(error_msg, plugin_id=plugin_id)
+            self.set_plugin_state(plugin_id, self.STATE_ERROR, error_msg)
+            return False
             
     def load_enabled_plugins(self, app_context: Any = None) -> Dict[str, bool]:
         """
@@ -484,7 +633,7 @@ class PluginManager:
         
     def get_all_plugins_info(self) -> List[Dict[str, Any]]:
         """
-        获取所有插件信息
+        获取所有插件信息 - 增强版，包含状态信息
         
         返回:
             List[Dict]: 插件信息列表
@@ -492,10 +641,13 @@ class PluginManager:
         all_plugins = self.discover_plugins()
         enabled_plugins = self.config_manager.get_config_value("system", "enabled_plugins", []) if self.config_manager else []
         
-        # 添加启用状态信息
+        # 添加启用状态和运行状态信息
         for plugin in all_plugins:
-            plugin["enabled"] = plugin["id"] in enabled_plugins
-            plugin["loaded"] = plugin["id"] in self.plugins
+            plugin_id = plugin["id"]
+            plugin["enabled"] = plugin_id in enabled_plugins
+            plugin["loaded"] = plugin_id in self.plugins
+            plugin["state"] = self.get_plugin_state(plugin_id)
+            plugin["error"] = self.get_plugin_error(plugin_id)
             
         return all_plugins
         
