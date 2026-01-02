@@ -186,9 +186,11 @@ class GanttTaskBar(QWidget):
         
         # 动画相关属性
         self._opacity = 1.0  # 透明度属性
+        self._hover_progress = 0.0  # 悬停动画进度 (0.0 - 1.0)
         self.opacity_effect = None  # 透明度效果
         self.position_animation = None  # 位置动画
         self.size_animation = None  # 大小动画
+        self.hover_animation = None  # 悬停动画
         
         self.init_ui()
     
@@ -202,6 +204,16 @@ class GanttTaskBar(QWidget):
         self._opacity = value
         if self.opacity_effect:
             self.opacity_effect.setOpacity(value)
+    
+    # 添加悬停进度属性以支持平滑过渡
+    @pyqtProperty(float)
+    def hover_progress(self):
+        return self._hover_progress
+    
+    @hover_progress.setter
+    def hover_progress(self, value):
+        self._hover_progress = value
+        self.update()  # 触发重绘
     
     def setup_animations(self):
         """初始化动画效果"""
@@ -290,6 +302,91 @@ class GanttTaskBar(QWidget):
         else:
             self.setCursor(Qt.PointingHandCursor)
         
+    def animate_to_position(self, target_x, target_y=None, duration=200):
+        """使用动画平滑移动到目标位置
+        
+        Args:
+            target_x: 目标X坐标
+            target_y: 目标Y坐标（可选，默认保持当前Y坐标）
+            duration: 动画持续时间（毫秒）
+        """
+        if target_y is None:
+            target_y = self.y()
+        
+        # 创建位置动画
+        self.position_animation = QPropertyAnimation(self, b"pos")
+        self.position_animation.setDuration(duration)
+        self.position_animation.setStartValue(QPoint(self.x(), self.y()))
+        self.position_animation.setEndValue(QPoint(int(target_x), int(target_y)))
+        self.position_animation.setEasingCurve(QEasingCurve.OutCubic)
+        self.position_animation.start()
+    
+    def animate_to_size(self, target_width, target_height=None, duration=200):
+        """使用动画平滑调整到目标大小
+        
+        Args:
+            target_width: 目标宽度
+            target_height: 目标高度（可选，默认保持当前高度）
+            duration: 动画持续时间（毫秒）
+        """
+        if target_height is None:
+            target_height = self.height()
+        
+        # 创建大小动画
+        self.size_animation = QPropertyAnimation(self, b"size")
+        self.size_animation.setDuration(duration)
+        self.size_animation.setStartValue(QSize(self.width(), self.height()))
+        self.size_animation.setEndValue(QSize(int(target_width), int(target_height)))
+        self.size_animation.setEasingCurve(QEasingCurve.OutCubic)
+        self.size_animation.start()
+    
+    def animate_geometry(self, target_rect, duration=200):
+        """使用动画平滑改变几何属性
+        
+        Args:
+            target_rect: 目标矩形 (x, y, width, height)
+            duration: 动画持续时间（毫秒）
+        """
+        # 创建几何动画
+        self.geometry_animation = QPropertyAnimation(self, b"geometry")
+        self.geometry_animation.setDuration(duration)
+        self.geometry_animation.setStartValue(self.geometry())
+        self.geometry_animation.setEndValue(QRectF(*target_rect))
+        self.geometry_animation.setEasingCurve(QEasingCurve.OutCubic)
+        self.geometry_animation.start()
+    
+    def fade_in(self, duration=300):
+        """淡入动画
+        
+        Args:
+            duration: 动画持续时间（毫秒）
+        """
+        if not self.opacity_effect:
+            self.setup_animations()
+        
+        self.fade_animation = QPropertyAnimation(self, b"opacity")
+        self.fade_animation.setDuration(duration)
+        self.fade_animation.setStartValue(0.0)
+        self.fade_animation.setEndValue(1.0)
+        self.fade_animation.setEasingCurve(QEasingCurve.InOutQuad)
+        self.fade_animation.start()
+    
+    def fade_out(self, duration=300):
+        """淡出动画
+        
+        Args:
+            duration: 动画持续时间（毫秒）
+        """
+        if not self.opacity_effect:
+            self.setup_animations()
+        
+        self.fade_animation = QPropertyAnimation(self, b"opacity")
+        self.fade_animation.setDuration(duration)
+        self.fade_animation.setStartValue(1.0)
+        self.fade_animation.setEndValue(0.0)
+        self.fade_animation.setEasingCurve(QEasingCurve.InOutQuad)
+        self.fade_animation.start()
+    
     def update_tooltip(self):
         """更新工具提示"""
         task_start = self.task_data.get("start_time")
@@ -325,7 +422,7 @@ class GanttTaskBar(QWidget):
         )
         
     def paintEvent(self, event):
-        """绘制任务条"""
+        """绘制任务条 - 增强版，支持平滑动画效果"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         
@@ -341,10 +438,15 @@ class GanttTaskBar(QWidget):
         path = QPainterPath()
         path.addRoundedRect(QRectF(self.rect()), 3, 3)
         
-        # 悬停效果
+        # 悬停效果 - 使用动画进度实现平滑过渡
         bg_color = self.bg_color
-        if self.hover:
-            bg_color = bg_color.lighter(110)
+        if self._hover_progress > 0:
+            # 根据悬停进度插值颜色
+            lighter_color = bg_color.lighter(110)
+            r = bg_color.red() + int((lighter_color.red() - bg_color.red()) * self._hover_progress)
+            g = bg_color.green() + int((lighter_color.green() - bg_color.green()) * self._hover_progress)
+            b = bg_color.blue() + int((lighter_color.blue() - bg_color.blue()) * self._hover_progress)
+            bg_color = QColor(r, g, b)
             
         painter.fillPath(path, bg_color)
         
@@ -388,27 +490,46 @@ class GanttTaskBar(QWidget):
             
         painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, display_text)
         
-        # 绘制边框，拖拽时边框更明显
+        # 绘制边框 - 边框宽度根据悬停进度平滑过渡
         if self.dragging:
             painter.setPen(QPen(QColor(255, 255, 255), 2, Qt.DashLine))
-        elif self.hover:
-            painter.setPen(QPen(QColor(255, 255, 255), 1.5))
         else:
-            painter.setPen(QPen(QColor(255, 255, 255, 150), 1))
+            # 悬停时边框加粗，根据悬停进度平滑过渡
+            border_width = 1 + 0.5 * self._hover_progress
+            border_alpha = 150 + int(105 * self._hover_progress)
+            painter.setPen(QPen(QColor(255, 255, 255, border_alpha), border_width))
             
         painter.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), 3, 3)
         
     def enterEvent(self, event):
-        """鼠标进入事件"""
+        """鼠标进入事件 - 添加平滑动画"""
         self.hover = True
-        self.update()
+        
+        # 启动悬停进入动画
+        if not self.hover_animation or self.hover_animation.state() != QPropertyAnimation.Running:
+            self.hover_animation = QPropertyAnimation(self, b"hover_progress")
+            self.hover_animation.setDuration(150)
+            self.hover_animation.setStartValue(self._hover_progress)
+            self.hover_animation.setEndValue(1.0)
+            self.hover_animation.setEasingCurve(QEasingCurve.OutCubic)
+            self.hover_animation.start()
+        
         super().enterEvent(event)
     
     def leaveEvent(self, event):
-        """鼠标离开事件"""
+        """鼠标离开事件 - 添加平滑动画"""
         self.hover = False
         self.setCursor(Qt.ArrowCursor)
-        self.update()
+        
+        # 启动悬停离开动画
+        if not self.hover_animation or self.hover_animation.state() != QPropertyAnimation.Running:
+            self.hover_animation = QPropertyAnimation(self, b"hover_progress")
+            self.hover_animation.setDuration(150)
+            self.hover_animation.setStartValue(self._hover_progress)
+            self.hover_animation.setEndValue(0.0)
+            self.hover_animation.setEasingCurve(QEasingCurve.OutCubic)
+            self.hover_animation.start()
+        
         super().leaveEvent(event)
             
     def mouseMoveEvent(self, event):
