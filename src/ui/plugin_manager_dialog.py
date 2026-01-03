@@ -280,7 +280,8 @@ class PluginManagerDialog(QDialog):
         
         # 添加选项卡
         self.tab_widget.addTab(self.local_tab, "本地安装")
-        self.tab_widget.addTab(self.repo_tab, "插件仓库")
+        # 临时隐藏插件仓库功能 - 等待后续开发
+        # self.tab_widget.addTab(self.repo_tab, "插件仓库")
         
         main_layout.addWidget(self.tab_widget)
     
