@@ -766,16 +766,31 @@ class GanttTaskRow(QWidget):
             parent.edit_task(task_data)
     
     def on_task_drag_moved(self, task_data, days_moved):
-        """处理任务拖拽移动"""
+        """处理任务拖拽移动 - 支持父子任务联动
+        
+        当拖动任务时：
+        1. 移动任务本身（保持时长不变）
+        2. 如果任务有子任务，同步移动所有子任务
+        """
         if days_moved == 0:
             return
         
         print(f"甘特图行: 任务拖动 {days_moved} 天，任务ID = {task_data.get('id')}")
         
+        # 查找GanttChart获取subtask_manager
+        parent = self.parent()
+        while parent and not isinstance(parent, GanttChart):
+            parent = parent.parent()
+        
+        if not parent or not isinstance(parent, GanttChart):
+            return
+        
+        subtask_manager = parent.scheduler_manager.window().subtask_manager if hasattr(parent.scheduler_manager, 'window') else None
+        
         # 创建任务数据副本
         updated_task = task_data.copy()
         
-        # 更新开始和结束日期
+        # 更新开始和结束日期（保持时长不变）
         start_time = updated_task.get("start_time")
         end_time = updated_task.get("end_time")
         
@@ -789,16 +804,31 @@ class GanttTaskRow(QWidget):
         print(f"  新结束时间: {new_end}")
         
         # 先更新任务条位置，以便用户有即时反馈
-        # 精确计算任务条新位置
         days_from_start = (new_start.date() - self.start_date).days
         start_offset = days_from_start * self.day_width
         
-        # 精确计算任务条宽度
         duration_days = max(1, (new_end.date() - new_start.date()).days + 1)
         width = duration_days * self.day_width
         
         # 使用精确计算的结果更新位置
         self.task_bar.setGeometry(int(start_offset), 5, int(width), 25)
+        
+        # 如果任务有子任务，同步移动所有子任务
+        if subtask_manager and updated_task.get('subtasks'):
+            subtask_ids = updated_task.get('subtasks', [])
+            for subtask_id in subtask_ids:
+                subtask = parent.scheduler_manager.get_task(subtask_id)
+                if subtask:
+                    subtask_start = subtask.get("start_time")
+                    subtask_end = subtask.get("end_time")
+                    
+                    # 移动子任务（保持时长不变）
+                    subtask["start_time"] = subtask_start + timedelta(days=days_moved)
+                    subtask["end_time"] = subtask_end + timedelta(days=days_moved)
+                    
+                    # 更新子任务
+                    parent.scheduler_manager.update_task(subtask)
+                    print(f"  同步移动子任务: {subtask_id}")
         
         # 查找GanttChart并更新任务
         parent = self.parent()
@@ -810,11 +840,26 @@ class GanttTaskRow(QWidget):
             parent.update_task(updated_task)
     
     def on_task_resized(self, task_data, days_changed, is_start_date):
-        """处理任务调整大小事件"""
+        """处理任务调整大小事件 - 支持父子任务联动调整
+        
+        当调整父任务大小时：
+        1. 调整父任务的开始或结束时间
+        2. 按比例调整所有子任务的时间，保持子任务在父任务时间范围内
+        """
         if days_changed == 0:
             return
             
         print(f"甘特图行: 任务调整大小 {days_changed} 天，调整{'开始' if is_start_date else '结束'}时间，任务ID = {task_data.get('id')}")
+        
+        # 查找GanttChart获取subtask_manager
+        parent = self.parent()
+        while parent and not isinstance(parent, GanttChart):
+            parent = parent.parent()
+        
+        if not parent or not isinstance(parent, GanttChart):
+            return
+        
+        subtask_manager = parent.scheduler_manager.window().subtask_manager if hasattr(parent.scheduler_manager, 'window') else None
             
         # 创建任务数据副本
         updated_task = task_data.copy()
@@ -823,40 +868,93 @@ class GanttTaskRow(QWidget):
         start_time = updated_task.get("start_time")
         end_time = updated_task.get("end_time")
         
+        # 记录原始时间范围
+        original_duration = (end_time - start_time).total_seconds()
+        
         if is_start_date:
             # 调整开始日期
             new_start = start_time - timedelta(days=days_changed)
             updated_task["start_time"] = new_start
             print(f"  新开始时间: {new_start}")
             
-            # 先更新任务条的视觉效果，提供即时反馈
-            # 精确计算新位置
+            # 计算新的时间范围
+            new_duration = (end_time - new_start).total_seconds()
+            
+            # 先更新任务条的视觉效果
             days_from_start = (new_start.date() - self.start_date).days
             start_offset = days_from_start * self.day_width
             
-            # 精确计算新宽度
             duration_days = max(1, (end_time.date() - new_start.date()).days + 1)
             width = duration_days * self.day_width
             
-            # 使用精确计算的结果更新位置和大小
             self.task_bar.setGeometry(int(start_offset), 5, int(width), 25)
+            
+            # 如果任务有子任务，按比例调整子任务
+            if subtask_manager and updated_task.get('subtasks') and original_duration > 0:
+                subtask_ids = updated_task.get('subtasks', [])
+                for subtask_id in subtask_ids:
+                    subtask = parent.scheduler_manager.get_task(subtask_id)
+                    if subtask:
+                        # 计算子任务在原时间范围中的相对位置
+                        subtask_start = subtask.get("start_time")
+                        subtask_end = subtask.get("end_time")
+                        
+                        # 相对于原始父任务开始时间的偏移量（秒）
+                        start_offset_seconds = (subtask_start - start_time).total_seconds()
+                        end_offset_seconds = (subtask_end - start_time).total_seconds()
+                        
+                        # 计算在新时间范围中的位置（按比例缩放）
+                        scale_factor = new_duration / original_duration
+                        new_subtask_start = new_start + timedelta(seconds=start_offset_seconds * scale_factor)
+                        new_subtask_end = new_start + timedelta(seconds=end_offset_seconds * scale_factor)
+                        
+                        subtask["start_time"] = new_subtask_start
+                        subtask["end_time"] = new_subtask_end
+                        
+                        parent.scheduler_manager.update_task(subtask)
+                        print(f"  按比例调整子任务: {subtask_id}")
         else:
             # 调整结束日期
             new_end = end_time + timedelta(days=days_changed)
             updated_task["end_time"] = new_end
             print(f"  新结束时间: {new_end}")
             
-            # 先更新任务条的视觉效果，提供即时反馈
-            # 精确计算新位置（开始位置不变）
+            # 计算新的时间范围
+            new_duration = (new_end - start_time).total_seconds()
+            
+            # 先更新任务条的视觉效果
             days_from_start = (start_time.date() - self.start_date).days
             start_offset = days_from_start * self.day_width
             
-            # 精确计算新宽度
             duration_days = max(1, (new_end.date() - start_time.date()).days + 1)
             width = duration_days * self.day_width
             
-            # 使用精确计算的结果更新大小
             self.task_bar.setGeometry(int(start_offset), 5, int(width), 25)
+            
+            # 如果任务有子任务，按比例调整子任务
+            if subtask_manager and updated_task.get('subtasks') and original_duration > 0:
+                subtask_ids = updated_task.get('subtasks', [])
+                for subtask_id in subtask_ids:
+                    subtask = parent.scheduler_manager.get_task(subtask_id)
+                    if subtask:
+                        # 计算子任务在原时间范围中的相对位置
+                        subtask_start = subtask.get("start_time")
+                        subtask_end = subtask.get("end_time")
+                        
+                        # 相对于原始父任务开始时间的偏移量（秒）
+                        start_offset_seconds = (subtask_start - start_time).total_seconds()
+                        end_offset_seconds = (subtask_end - start_time).total_seconds()
+                        
+                        # 计算在新时间范围中的位置（按比例缩放）
+                        scale_factor = new_duration / original_duration
+                        new_subtask_start = start_time + timedelta(seconds=start_offset_seconds * scale_factor)
+                        new_subtask_end = start_time + timedelta(seconds=end_offset_seconds * scale_factor)
+                        
+                        subtask["start_time"] = new_subtask_start
+                        subtask["end_time"] = new_subtask_end
+                        
+                        parent.scheduler_manager.update_task(subtask)
+                        print(f"  按比例调整子任务: {subtask_id}")
         
         # 强制更新任务条显示
         self.task_bar.update()
@@ -867,8 +965,9 @@ class GanttTaskRow(QWidget):
             parent = parent.parent()
             
         if parent and isinstance(parent, GanttChart):
-            # 更新任务数据 - 这里将间接触发日历视图更新
+            # 更新任务数据
             parent.update_task(updated_task)
+
 
     def mousePressEvent(self, event):
         """处理鼠标按下事件，用于垂直拖拽任务行"""
