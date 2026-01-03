@@ -585,10 +585,6 @@ class GanttTaskBar(QWidget):
             delta_x = event.globalPos().x() - self.drag_start_x
             new_x = self.original_x + delta_x
             
-            # 限制不能拖拽到开始日期之前
-            if new_x < 0:
-                new_x = 0
-                
             # 吸附到天网格
             new_x = self.snap_to_grid(new_x, self.day_width)
                 
@@ -811,6 +807,15 @@ class GanttTaskRow(QWidget):
                 # 更新task_data引用以保持同步
                 task_data.update(updated_task)
                 print(f"  任务更新成功")
+                
+                # 查找GanttView并触发刷新
+                gantt_view = parent.parent()
+                while gantt_view and not isinstance(gantt_view, GanttView):
+                    gantt_view = gantt_view.parent()
+                
+                if gantt_view and isinstance(gantt_view, GanttView):
+                    # 使用QTimer延迟刷新，避免在拖动过程中频繁刷新
+                    QTimer.singleShot(100, gantt_view.refresh)
             else:
                 print(f"  任务更新失败")
     
@@ -877,6 +882,15 @@ class GanttTaskRow(QWidget):
                 # 更新task_data引用以保持同步
                 task_data.update(updated_task)
                 print(f"  任务更新成功")
+                
+                # 查找GanttView并触发刷新
+                gantt_view = parent.parent()
+                while gantt_view and not isinstance(gantt_view, GanttView):
+                    gantt_view = gantt_view.parent()
+                
+                if gantt_view and isinstance(gantt_view, GanttView):
+                    # 使用QTimer延迟刷新，避免在拖动过程中频繁刷新
+                    QTimer.singleShot(100, gantt_view.refresh)
             else:
                 print(f"  任务更新失败")
 
