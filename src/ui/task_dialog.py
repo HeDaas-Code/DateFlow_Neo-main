@@ -930,159 +930,231 @@ class TaskDialog(QDialog):
     
     def add_new_person(self):
         """添加新人员"""
-        # 创建自定义对话框
-        dialog = QDialog(self)
-        dialog.setWindowTitle("添加新人员")
-        dialog.setFixedSize(300, 150)
-        
-        # 创建布局
-        layout = QVBoxLayout(dialog)
-        
-        # 添加提示文本
-        prompt_label = StrongBodyLabel("请输入人员姓名", dialog)
-        layout.addWidget(prompt_label)
-        
-        # 创建输入框
-        name_edit = LineEdit(dialog)
-        name_edit.setPlaceholderText("输入人员姓名")
-        layout.addWidget(name_edit)
-        
-        # 创建按钮布局
-        btn_layout = QHBoxLayout()
-        
-        # 添加按钮
-        cancel_btn = PushButton("取消", dialog)
-        cancel_btn.clicked.connect(dialog.reject)
-        
-        confirm_btn = PrimaryPushButton("确认", dialog)
-        confirm_btn.clicked.connect(dialog.accept)
-        
-        btn_layout.addWidget(cancel_btn)
-        btn_layout.addWidget(confirm_btn)
-        
-        # 添加按钮布局
-        layout.addStretch()
-        layout.addLayout(btn_layout)
-        
-        # 显示对话框
-        if dialog.exec_():
-            name = name_edit.text().strip()
-            if name:
-                # 生成一个唯一ID
-                import uuid
-                person_id = str(uuid.uuid4())
-                
-                # 添加人员
-                if self.config_manager:
-                    person_data = {
-                        'id': person_id,
-                        'name': name,
-                        'created_at': datetime.now().isoformat()
-                    }
+        try:
+            # 创建自定义对话框
+            dialog = QDialog(self)
+            dialog.setWindowTitle("添加新人员")
+            dialog.setFixedSize(300, 150)
+            
+            # 创建布局
+            layout = QVBoxLayout(dialog)
+            
+            # 添加提示文本
+            prompt_label = StrongBodyLabel("请输入人员姓名", dialog)
+            layout.addWidget(prompt_label)
+            
+            # 创建输入框
+            name_edit = LineEdit(dialog)
+            name_edit.setPlaceholderText("输入人员姓名")
+            layout.addWidget(name_edit)
+            
+            # 创建按钮布局
+            btn_layout = QHBoxLayout()
+            
+            # 添加按钮
+            cancel_btn = PushButton("取消", dialog)
+            cancel_btn.clicked.connect(dialog.reject)
+            
+            confirm_btn = PrimaryPushButton("确认", dialog)
+            confirm_btn.clicked.connect(dialog.accept)
+            
+            btn_layout.addWidget(cancel_btn)
+            btn_layout.addWidget(confirm_btn)
+            
+            # 添加按钮布局
+            layout.addStretch()
+            layout.addLayout(btn_layout)
+            
+            # 显示对话框
+            if dialog.exec_():
+                name = name_edit.text().strip()
+                if not name:
+                    InfoBar.warning(
+                        title="提示",
+                        content="请输入人员姓名",
+                        parent=self,
+                        position=InfoBarPosition.TOP_RIGHT,
+                        duration=2000
+                    )
+                    return
                     
-                    if self.config_manager.add_person(person_data):
-                        # 重新加载人员列表
-                        self.load_people_and_locations()
+                if name:
+                    # 生成一个唯一ID
+                    import uuid
+                    person_id = str(uuid.uuid4())
+                    
+                    # 添加人员
+                    if self.config_manager:
+                        person_data = {
+                            'id': person_id,
+                            'name': name,
+                            'created_at': datetime.now().isoformat()
+                        }
                         
-                        # 选中新添加的人员
-                        for i in range(self.people_list.count()):
-                            item = self.people_list.item(i)
-                            if item.data(Qt.UserRole) == person_id:
-                                item.setSelected(True)
-                                break
-                        
-                        InfoBar.success(
-                            title="成功",
-                            content=f"已添加人员: {name}",
-                            parent=self,
-                            position=InfoBarPosition.TOP_RIGHT,
-                            duration=2000
-                        )
-                    else:
-                        InfoBar.error(
-                            title="错误",
-                            content="添加人员失败",
-                            parent=self,
-                            position=InfoBarPosition.TOP_RIGHT,
-                            duration=3000
-                        )
+                        if self.config_manager.add_person(person_data):
+                            # 重新加载人员列表
+                            try:
+                                self.load_people_and_locations()
+                                
+                                # 选中新添加的人员
+                                for i in range(self.people_list.count()):
+                                    item = self.people_list.item(i)
+                                    if item and item.data(Qt.UserRole) == person_id:
+                                        item.setSelected(True)
+                                        self.people_list.setCurrentItem(item)
+                                        break
+                                
+                                InfoBar.success(
+                                    title="成功",
+                                    content=f"已添加人员: {name}",
+                                    parent=self,
+                                    position=InfoBarPosition.TOP_RIGHT,
+                                    duration=2000
+                                )
+                            except Exception as e:
+                                print(f"加载人员列表时出错: {e}")
+                                import traceback
+                                traceback.print_exc()
+                                InfoBar.error(
+                                    title="错误",
+                                    content=f"刷新人员列表失败: {str(e)}",
+                                    parent=self,
+                                    position=InfoBarPosition.TOP_RIGHT,
+                                    duration=3000
+                                )
+                        else:
+                            InfoBar.error(
+                                title="错误",
+                                content="添加人员失败",
+                                parent=self,
+                                position=InfoBarPosition.TOP_RIGHT,
+                                duration=3000
+                            )
+        except Exception as e:
+            print(f"添加人员对话框出错: {e}")
+            import traceback
+            traceback.print_exc()
+            InfoBar.error(
+                title="错误",
+                content=f"添加人员时发生错误: {str(e)}",
+                parent=self,
+                position=InfoBarPosition.TOP_RIGHT,
+                duration=3000
+            )
     
     def add_new_location(self):
         """添加新地点"""
-        # 创建自定义对话框
-        dialog = QDialog(self)
-        dialog.setWindowTitle("添加新地点")
-        dialog.setFixedSize(300, 150)
-        
-        # 创建布局
-        layout = QVBoxLayout(dialog)
-        
-        # 添加提示文本
-        prompt_label = StrongBodyLabel("请输入地点名称", dialog)
-        layout.addWidget(prompt_label)
-        
-        # 创建输入框
-        name_edit = LineEdit(dialog)
-        name_edit.setPlaceholderText("输入地点名称")
-        layout.addWidget(name_edit)
-        
-        # 创建按钮布局
-        btn_layout = QHBoxLayout()
-        
-        # 添加按钮
-        cancel_btn = PushButton("取消", dialog)
-        cancel_btn.clicked.connect(dialog.reject)
-        
-        confirm_btn = PrimaryPushButton("确认", dialog)
-        confirm_btn.clicked.connect(dialog.accept)
-        
-        btn_layout.addWidget(cancel_btn)
-        btn_layout.addWidget(confirm_btn)
-        
-        # 添加按钮布局
-        layout.addStretch()
-        layout.addLayout(btn_layout)
-        
-        # 显示对话框
-        if dialog.exec_():
-            name = name_edit.text().strip()
-            if name:
-                # 生成一个唯一ID
-                import uuid
-                location_id = str(uuid.uuid4())
-                
-                # 添加地点
-                if self.config_manager:
-                    location_data = {
-                        'id': location_id,
-                        'name': name,
-                        'created_at': datetime.now().isoformat()
-                    }
+        try:
+            # 创建自定义对话框
+            dialog = QDialog(self)
+            dialog.setWindowTitle("添加新地点")
+            dialog.setFixedSize(300, 150)
+            
+            # 创建布局
+            layout = QVBoxLayout(dialog)
+            
+            # 添加提示文本
+            prompt_label = StrongBodyLabel("请输入地点名称", dialog)
+            layout.addWidget(prompt_label)
+            
+            # 创建输入框
+            name_edit = LineEdit(dialog)
+            name_edit.setPlaceholderText("输入地点名称")
+            layout.addWidget(name_edit)
+            
+            # 创建按钮布局
+            btn_layout = QHBoxLayout()
+            
+            # 添加按钮
+            cancel_btn = PushButton("取消", dialog)
+            cancel_btn.clicked.connect(dialog.reject)
+            
+            confirm_btn = PrimaryPushButton("确认", dialog)
+            confirm_btn.clicked.connect(dialog.accept)
+            
+            btn_layout.addWidget(cancel_btn)
+            btn_layout.addWidget(confirm_btn)
+            
+            # 添加按钮布局
+            layout.addStretch()
+            layout.addLayout(btn_layout)
+            
+            # 显示对话框
+            if dialog.exec_():
+                name = name_edit.text().strip()
+                if not name:
+                    InfoBar.warning(
+                        title="提示",
+                        content="请输入地点名称",
+                        parent=self,
+                        position=InfoBarPosition.TOP_RIGHT,
+                        duration=2000
+                    )
+                    return
                     
-                    if self.config_manager.add_location(location_data):
-                        # 重新加载地点列表
-                        self.load_people_and_locations()
+                if name:
+                    # 生成一个唯一ID
+                    import uuid
+                    location_id = str(uuid.uuid4())
+                    
+                    # 添加地点
+                    if self.config_manager:
+                        location_data = {
+                            'id': location_id,
+                            'name': name,
+                            'created_at': datetime.now().isoformat()
+                        }
                         
-                        # 选中新添加的地点
-                        index = self.location_list.findText(name)
-                        if index >= 0:
-                            self.location_list.setCurrentItem(self.location_list.item(index))
-                        
-                        InfoBar.success(
-                            title="成功",
-                            content=f"已添加地点: {name}",
-                            parent=self,
-                            position=InfoBarPosition.TOP_RIGHT,
-                            duration=2000
-                        )
-                    else:
-                        InfoBar.error(
-                            title="错误",
-                            content="添加地点失败",
-                            parent=self,
-                            position=InfoBarPosition.TOP_RIGHT,
-                            duration=3000
-                        )
+                        if self.config_manager.add_location(location_data):
+                            # 重新加载地点列表
+                            try:
+                                self.load_people_and_locations()
+                                
+                                # 选中新添加的地点
+                                for i in range(self.location_list.count()):
+                                    item = self.location_list.item(i)
+                                    if item and item.data(Qt.UserRole) == location_id:
+                                        item.setSelected(True)
+                                        self.location_list.setCurrentItem(item)
+                                        break
+                                
+                                InfoBar.success(
+                                    title="成功",
+                                    content=f"已添加地点: {name}",
+                                    parent=self,
+                                    position=InfoBarPosition.TOP_RIGHT,
+                                    duration=2000
+                                )
+                            except Exception as e:
+                                print(f"加载地点列表时出错: {e}")
+                                import traceback
+                                traceback.print_exc()
+                                InfoBar.error(
+                                    title="错误",
+                                    content=f"刷新地点列表失败: {str(e)}",
+                                    parent=self,
+                                    position=InfoBarPosition.TOP_RIGHT,
+                                    duration=3000
+                                )
+                        else:
+                            InfoBar.error(
+                                title="错误",
+                                content="添加地点失败",
+                                parent=self,
+                                position=InfoBarPosition.TOP_RIGHT,
+                                duration=3000
+                            )
+        except Exception as e:
+            print(f"添加地点对话框出错: {e}")
+            import traceback
+            traceback.print_exc()
+            InfoBar.error(
+                title="错误",
+                content=f"添加地点时发生错误: {str(e)}",
+                parent=self,
+                position=InfoBarPosition.TOP_RIGHT,
+                duration=3000
+            )
     
     def add_subtask(self):
         """添加子任务"""
