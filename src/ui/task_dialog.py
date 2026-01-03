@@ -977,14 +977,13 @@ class TaskDialog(QDialog):
                         duration=2000
                     )
                     return
-                    
-                if name:
-                    # 生成一个唯一ID
-                    import uuid
-                    person_id = str(uuid.uuid4())
-                    
-                    # 添加人员
-                    if self.config_manager:
+                
+                # 生成一个唯一ID
+                import uuid
+                person_id = str(uuid.uuid4())
+                
+                # 添加人员
+                if self.config_manager:
                         person_data = {
                             'id': person_id,
                             'name': name,
@@ -1091,14 +1090,13 @@ class TaskDialog(QDialog):
                         duration=2000
                     )
                     return
-                    
-                if name:
-                    # 生成一个唯一ID
-                    import uuid
-                    location_id = str(uuid.uuid4())
-                    
-                    # 添加地点
-                    if self.config_manager:
+                
+                # 生成一个唯一ID
+                import uuid
+                location_id = str(uuid.uuid4())
+                
+                # 添加地点
+                if self.config_manager:
                         location_data = {
                             'id': location_id,
                             'name': name,
