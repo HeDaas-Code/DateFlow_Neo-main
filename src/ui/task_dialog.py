@@ -392,6 +392,11 @@ class TaskDialog(QDialog):
         """更新人员和地点信息显示"""
         if not self.config_manager:
             return
+        
+        # 检查必需的控件是否已初始化
+        required_widgets = ['people_list_label', 'location_label', 'people_info_widget', 'location_info_widget']
+        if not all(hasattr(self, widget) for widget in required_widgets):
+            return
             
         # 更新人员信息
         selected_people = self.people_list.selectedItems()
